@@ -1,0 +1,33 @@
+# Node modules
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Logs
+logs
+*.log
+logs/*.log
+
+# OS-specific
+.DS_Store
+Thumbs.db
+
+# Build / cache
+dist/
+build/
+.cache/
+.tmp/
+
+# IDE settings
+.vscode/
+.idea/
+
+# Uploaded files (keep uploads folder but not its content)
+uploads/*
+!uploads/.gitkeep
