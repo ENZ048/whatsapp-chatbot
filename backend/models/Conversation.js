@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const conversationSchema = new mongoose.Schema({
   chatbotId: { type: mongoose.Schema.Types.ObjectId, ref: "Chatbot", required: true },
@@ -10,4 +10,4 @@ const conversationSchema = new mongoose.Schema({
   timestamp: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model("Conversation", conversationSchema);
+export default mongoose.model("Conversation", conversationSchema);

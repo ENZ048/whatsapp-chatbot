@@ -1,4 +1,4 @@
-const mongoose = require("mongoose");
+import mongoose from "mongoose";
 
 const usageSchema = new mongoose.Schema({
   companyId: { type: mongoose.Schema.Types.ObjectId, ref: "Company", required: true },
@@ -8,4 +8,4 @@ const usageSchema = new mongoose.Schema({
   lastReset: { type: Date, default: Date.now }, // for monthly reset
 }, { timestamps: true });
 
-module.exports = mongoose.model("Usage", usageSchema);
+export default mongoose.model("Usage", usageSchema);
