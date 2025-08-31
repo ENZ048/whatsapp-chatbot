@@ -1,9 +1,9 @@
 import express from "express";
-import { queryChatbot } from "../controllers/queryController.js";
-
+import { queryChatbotRoute } from "../controllers/queryController.js";
 
 const router = express.Router();
 
-router.post("/", queryChatbot);
+// POST /api/query
+router.post("/", queryChatbotRoute);
 
 export default router;

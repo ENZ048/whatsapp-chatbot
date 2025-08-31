@@ -2,8 +2,9 @@ import axios from "axios";
 import Chatbot from "../models/Chatbot.js";
 import Conversation from "../models/Conversation.js";
 import { updateUsage } from "../utils/usageTracker.js";
-import { queryChatbot } from "./queryController.js";
+import { queryChatbot } from "../services/queryService.js";
 
+// Send message back to WhatsApp API
 async function sendWhatsAppMessage(phoneNumberId, to, text) {
   const url = `https://graph.facebook.com/v19.0/${phoneNumberId}/messages`;
   try {
@@ -27,8 +28,10 @@ async function sendWhatsAppMessage(phoneNumberId, to, text) {
   }
 }
 
+// Main webhook
 export const whatsappWebhook = async (req, res) => {
   try {
+    // ✅ Verification handshake
     if (req.method === "GET") {
       const verifyToken = process.env.WHATSAPP_VERIFY_TOKEN;
       const mode = req.query["hub.mode"];
@@ -42,9 +45,10 @@ export const whatsappWebhook = async (req, res) => {
       }
     }
 
+    // ✅ Handle messages
     console.log("📩 Incoming Webhook Body:", JSON.stringify(req.body, null, 2));
-
     const body = req.body;
+
     if (body.object) {
       const entry = body.entry?.[0];
       const changes = entry?.changes?.[0];
@@ -53,12 +57,13 @@ export const whatsappWebhook = async (req, res) => {
 
       if (messages && messages[0]) {
         const msg = messages[0];
-        const from = msg.from;
-        const text = msg.text?.body;
+        const from = msg.from; // user number
+        const text = msg.text?.body; // user message
         const phoneNumberId = value.metadata.phone_number_id;
 
         console.log("👤 From:", from, "📞 Business:", phoneNumberId, "💬 Text:", text);
 
+        // 🔎 Find chatbot
         const chatbot = await Chatbot.findOne({ phoneNumberId });
         console.log("🤖 Matched chatbot:", chatbot);
 
@@ -67,37 +72,41 @@ export const whatsappWebhook = async (req, res) => {
           return res.sendStatus(200);
         }
 
-        const ragReq = { body: { chatbotId: chatbot._id, query: text } };
-        const ragRes = {
-          json: async (data) => {
-            console.log("📤 RAG Answer:", data.answer);
+        // 🔮 Run RAG pipeline (new pure function)
+        let answer, sources;
+        try {
+          const result = await queryChatbot(chatbot._id, text);
+          answer = result.answer;
+          sources = result.sources || [];
+        } catch (err) {
+          console.error("❌ Query Error:", err.message);
+          answer = "⚠️ Sorry, I couldn't process that right now.";
+        }
 
-            await sendWhatsAppMessage(phoneNumberId, from, data.answer);
+        // 1️⃣ Send reply
+        await sendWhatsAppMessage(phoneNumberId, from, answer);
 
-            // Conversation log with error handling
-            try {
-              const convo = await Conversation.create({
-                chatbotId: chatbot._id,
-                userNumber: from,
-                question: text,
-                answer: data.answer,
-              });
-              console.log("✅ Conversation logged:", convo._id);
-            } catch (err) {
-              console.error("❌ Conversation Log Error:", err.message);
-            }
+        // 2️⃣ Log conversation
+        try {
+          const convo = await Conversation.create({
+            chatbotId: chatbot._id,
+            userNumber: from,
+            question: text,
+            answer,
+            sourceDocs: sources.map(s => s._id), // optional
+          });
+          console.log("✅ Conversation logged:", convo._id);
+        } catch (err) {
+          console.error("❌ Conversation Log Error:", err.message);
+        }
 
-            // Usage update with error handling
-            try {
-              await updateUsage(chatbot._id, chatbot.companyId, from);
-              console.log("✅ Usage updated");
-            } catch (err) {
-              console.error("❌ Usage Update Error:", err.message);
-            }
-          },
-        };
-
-        await queryChatbot(ragReq, ragRes);
+        // 3️⃣ Update usage
+        try {
+          await updateUsage(chatbot._id, chatbot.companyId, from);
+          console.log("✅ Usage updated");
+        } catch (err) {
+          console.error("❌ Usage Update Error:", err.message);
+        }
       }
 
       return res.sendStatus(200);

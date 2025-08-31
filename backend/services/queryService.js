@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import mongoose from "mongoose";
 import Chunk from "../models/Chunk.js";
 import dotenv from 'dotenv'
 
@@ -6,58 +7,61 @@ dotenv.config();
 
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
 
-export const queryKnowledgeBase = async (question) => {
-  // 1. Embed the question
-  const queryEmbedding = await openai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: question,
-  });
-  const vector = queryEmbedding.data[0].embedding;
-
-  // 2. Search top-k chunks from MongoDB Atlas
-  const results = await Chunk.aggregate([
-    {
-      $vectorSearch: {
-        index: "embedding_index",   // must match your Atlas index name
-        path: "embedding",
-        queryVector: vector,
-        numCandidates: 50,
-        limit: 5
-      }
-    },
-    {
-      $project: {
-        chunk: 1,
-        docId: 1,
-        uploadedBy: 1,
-        score: { $meta: "vectorSearchScore" }
-      }
+/**
+ * Query chatbot RAG pipeline (pure function, no Express res)
+ * @param {string} chatbotId
+ * @param {string} query
+ * @returns {Promise<{ answer: string, sources: any[] }>}
+ */
+export const queryChatbot = async (chatbotId, query) => {
+  try {
+    if (!chatbotId || !query) {
+      throw new Error("chatbotId and query are required");
     }
-  ]);
 
-  const contexts = results.map(r => r.chunk);
+    // 1️⃣ Embed user query
+    const embeddingRes = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: query,
+    });
+    const queryVector = embeddingRes.data[0].embedding;
 
-  // 3. Build prompt for OpenAI
-  const prompt = `
-You are a helpful assistant. Use only the context below to answer the question. 
-If the context does not contain the answer, reply: "I don't know based on the knowledge base."
+    // 2️⃣ Vector Search with chatbotId filter
+    const results = await Chunk.aggregate([
+      {
+        $vectorSearch: {
+          index: "embedding_index", // 👈 must match Atlas Vector Search index name
+          queryVector,
+          path: "embedding",
+          numCandidates: 50,
+          limit: 5,
+          filter: { chatbotId: new mongoose.Types.ObjectId(chatbotId) },
+        },
+      },
+    ]);
 
-Context:
-${contexts.join("\n\n")}
+    const context = results.map(r => r.chunk).join("\n\n");
 
-Question: ${question}
-Answer:
-`;
+    // 3️⃣ Generate Answer with OpenAI
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "system",
+          content: "You are a helpful assistant. Answer only based on the provided context.",
+        },
+        {
+          role: "user",
+          content: `Context:\n${context}\n\nQuestion: ${query}`,
+        },
+      ],
+    });
 
-  // 4. Call OpenAI
-  const completion = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0.2,
-  });
+    const answer = completion.choices[0].message.content;
 
-  return {
-    answer: completion.choices[0].message.content,
-    matches: results
-  };
+    return { answer, sources: results };
+  } catch (error) {
+    console.error("❌ Query Error:", error.message);
+    throw error;
+  }
 };
