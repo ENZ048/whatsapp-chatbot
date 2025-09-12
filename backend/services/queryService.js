@@ -76,8 +76,8 @@ export const queryChatbot = async (chatbotId, query, history = []) => {
             filter: { chatbotId: new mongoose.Types.ObjectId(chatbotId) },
           },
         },
-        // Optionally project similarity score if Atlas returns it under 'score'
-        { $project: { chunk: 1, docId: 1, chatbotId: 1, embedding: 0, score: { $meta: "searchScore" } } }
+        // Project only needed fields (no embedding vector to save bandwidth)
+        { $project: { chunk: 1, docId: 1, chatbotId: 1, score: { $meta: "searchScore" } } }
       ]);
     } catch (e) {
       console.error('Vector search failed:', e.message);
