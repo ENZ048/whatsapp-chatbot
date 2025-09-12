@@ -46,10 +46,32 @@ export const receiveMessage = async (req, res) => {
           return res.sendStatus(200);
         }
 
-        // 🔥 Run RAG pipeline
+
+        // 🔥 Fetch last 10 messages for this user/chatbot for context
+        let history = [];
+        try {
+          const previousConvos = await Conversation.find({
+            chatbotId: chatbot._id,
+            userNumber: from
+          })
+            .sort({ timestamp: -1 })
+            .limit(10)
+            .lean();
+          history = previousConvos
+            .map(c => [
+              { role: "user", content: c.question },
+              { role: "assistant", content: c.answer }
+            ])
+            .flat()
+            .reverse();
+        } catch (err) {
+          // fallback: no history
+        }
+
+        // 🔥 Run RAG pipeline with user-specific history
         let answer, sources;
         try {
-          const response = await queryChatbot(chatbot._id, userMessage);
+          const response = await queryChatbot(chatbot._id, userMessage, history);
           answer = response.answer;
           sources = response.sources || [];
         } catch (err) {

@@ -2,6 +2,8 @@ import mammoth from "mammoth";
 import OpenAI from "openai";
 import KnowledgeBase from "../models/KnowledgeBase.js";
 import Chunk from "../models/Chunk.js";
+import Chatbot from "../models/Chatbot.js";
+import crypto from "crypto";
 
 let pdfParse; // 🔹 lazy import for PDF
 const openai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY });
@@ -16,11 +18,21 @@ function splitIntoChunks(text, chunkSize = 200) {
   return chunks;
 }
 
+function sha256(buffer) {
+  return crypto.createHash('sha256').update(buffer).digest('hex');
+}
+
 export const uploadFile = async (req, res) => {
   try {
-    const { chatbotId } = req.body;
+    const chatbotId = req.params.chatbotId || req.body.chatbotId;
     if (!chatbotId) {
-      return res.status(400).json({ error: "chatbotId is required" });
+      return res.status(400).json({ error: "chatbotId is required (path /chatbots/:chatbotId or body)" });
+    }
+
+    // Validate chatbot exists
+    const chatbot = await Chatbot.findById(chatbotId);
+    if (!chatbot) {
+      return res.status(404).json({ error: "Chatbot not found" });
     }
 
     const file = req.file;
@@ -56,31 +68,62 @@ export const uploadFile = async (req, res) => {
       return res.status(400).json({ error: "File has no readable text" });
     }
 
-    // 🔹 Save file metadata
-    const knowledgeBase = await KnowledgeBase.create({
-      chatbotId,
-      filename: file.originalname,
-      metadata: { size: file.size, mimetype: file.mimetype },
-    });
-
-    // 🔹 Chunk + Embed
-    const chunks = splitIntoChunks(extractedText, 200);
-
-    for (const chunk of chunks) {
-      const embeddingRes = await openai.embeddings.create({
-        model: "text-embedding-3-small",
-        input: chunk,
-      });
-
-      await Chunk.create({
-        chatbotId,
-        docId: knowledgeBase._id,
-        chunk,
-        embedding: embeddingRes.data[0].embedding,
+    // Duplicate detection by hash
+    const fileHash = sha256(file.buffer);
+    const existing = await KnowledgeBase.findOne({ chatbotId, fileHash });
+    if (existing) {
+      return res.status(200).json({
+        success: true,
+        message: "File already processed for this chatbot",
+        knowledgeBaseId: existing._id,
+        duplicate: true,
       });
     }
 
-    res.json({ success: true, message: "File uploaded & processed" });
+    // 🔹 Save file metadata + content (optional for audit)
+    const knowledgeBase = await KnowledgeBase.create({
+      chatbotId,
+      filename: file.originalname,
+      size: file.size,
+      fileHash,
+      content: extractedText,
+      metadata: { mimetype: file.mimetype },
+      processed: false,
+    });
+
+    // 🔹 Chunk + Batch Embed
+    const chunks = splitIntoChunks(extractedText, 200);
+    if (!chunks.length) {
+      return res.status(500).json({ error: "No chunks produced from document" });
+    }
+
+    const embedStart = Date.now();
+    const embeddingResp = await openai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: chunks,
+    });
+    const embedMs = Date.now() - embedStart;
+
+    const docs = chunks.map((c, i) => ({
+      chatbotId,
+      docId: knowledgeBase._id,
+      chunk: c,
+      embedding: embeddingResp.data[i].embedding,
+    }));
+  await Chunk.insertMany(docs);
+  console.log(`📦 Embedded ${docs.length} chunks for chatbot ${chatbotId} in ${embedMs}ms (~${(embedMs / docs.length).toFixed(1)} ms/chunk)`);
+
+    knowledgeBase.processed = true;
+    knowledgeBase.chunkCount = docs.length;
+    await knowledgeBase.save();
+
+    res.json({
+      success: true,
+      message: "File uploaded & processed",
+      knowledgeBaseId: knowledgeBase._id,
+      chunks: docs.length,
+      duplicate: false,
+    });
   } catch (error) {
     console.error("❌ Upload Error:", error.message);
     res.status(500).json({ error: "Failed to process file" });

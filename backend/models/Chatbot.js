@@ -10,6 +10,7 @@ const chatbotSchema = new mongoose.Schema(
     name: { type: String, required: true },
     phoneNumberId: { type: String, required: true }, // Meta WhatsApp number
     status: { type: String, enum: ["active", "inactive"], default: "active" },
+    persona: { type: String, default: "" }, // Persona for the chatbot
   },
   { timestamps: true }
 );

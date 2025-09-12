@@ -20,5 +20,7 @@ const chunkSchema = new mongoose.Schema(
 
 // Required for MongoDB Atlas Vector Search
 chunkSchema.index({ embedding: "vectorSearch" });
+// Support scoped queries & list operations
+chunkSchema.index({ chatbotId: 1, docId: 1 });
 
 export default mongoose.model("Chunk", chunkSchema);

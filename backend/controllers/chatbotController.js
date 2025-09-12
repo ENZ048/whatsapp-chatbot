@@ -1,4 +1,27 @@
+
 import Chatbot from "../models/Chatbot.js";
+
+// PATCH /api/chatbots/:id/persona
+export const updateChatbotPersona = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { persona } = req.body;
+    if (!persona || typeof persona !== "string") {
+      return res.status(400).json({ error: "Persona is required and must be a string" });
+    }
+    const chatbot = await Chatbot.findByIdAndUpdate(
+      id,
+      { persona },
+      { new: true }
+    );
+    if (!chatbot) {
+      return res.status(404).json({ error: "Chatbot not found" });
+    }
+    res.json({ success: true, chatbot });
+  } catch (err) {
+    res.status(500).json({ error: "Failed to update persona" });
+  }
+};
 
 export const createChatbot = async (req, res) => {
   try {

@@ -8,6 +8,10 @@ const router = express.Router();
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
+// Legacy generic upload (expects chatbotId in body)
 router.post("/", upload.single("file"), uploadFile);
+
+// Preferred chatbot-scoped upload (chatbotId in path)
+router.post("/chatbots/:chatbotId", upload.single("file"), uploadFile);
 
 export default router;

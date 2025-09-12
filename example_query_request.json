@@ -1,0 +1,5 @@
+{
+  "chatbotId": "<CHATBOT_ID>",
+  "userNumber": "<USER_WHATSAPP_NUMBER>",
+  "query": "<USER_MESSAGE>"
+}

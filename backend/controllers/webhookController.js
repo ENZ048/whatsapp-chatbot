@@ -72,12 +72,35 @@ export const whatsappWebhook = async (req, res) => {
           return res.sendStatus(200);
         }
 
-        // 🔮 Run RAG pipeline (new pure function)
-        let answer, sources;
+
+        // � Fetch last 10 messages for this user/chatbot for context
+        let history = [];
         try {
-          const result = await queryChatbot(chatbot._id, text);
+          const previousConvos = await Conversation.find({
+            chatbotId: chatbot._id,
+            userNumber: from
+          })
+            .sort({ timestamp: -1 })
+            .limit(10)
+            .lean();
+          history = previousConvos
+            .map(c => [
+              { role: "user", content: c.question },
+              { role: "assistant", content: c.answer }
+            ])
+            .flat()
+            .reverse();
+        } catch (err) {
+          // fallback: no history
+        }
+
+        // 🔮 Run RAG pipeline with user-specific history (now includes confidence + structured sources)
+        let answer, sources, confidence;
+        try {
+          const result = await queryChatbot(chatbot._id, text, history);
           answer = result.answer;
           sources = result.sources || [];
+          confidence = result.confidence;
         } catch (err) {
           console.error("❌ Query Error:", err.message);
           answer = "⚠️ Sorry, I couldn't process that right now.";
@@ -86,14 +109,15 @@ export const whatsappWebhook = async (req, res) => {
         // 1️⃣ Send reply
         await sendWhatsAppMessage(phoneNumberId, from, answer);
 
-        // 2️⃣ Log conversation
+        // 2️⃣ Log conversation (store confidence + source doc ids if available)
         try {
           const convo = await Conversation.create({
             chatbotId: chatbot._id,
             userNumber: from,
             question: text,
             answer,
-            sourceDocs: sources.map(s => s._id), // optional
+            confidence,
+            sourceDocs: sources.map(s => s.id).filter(Boolean), // optional
           });
           console.log("✅ Conversation logged:", convo._id);
         } catch (err) {
